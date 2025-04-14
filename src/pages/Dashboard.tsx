@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
-import { Truck, Euro, Calendar, Phone, Mail } from 'lucide-react';
+import { Truck, Euro, Calendar, Phone, Mail, Pencil } from 'lucide-react';
 import DashboardCard from '../components/DashboardCard';
-import StatusBadge from '../components/StatusBadge';
+import SlipStatusSelect from '../components/SlipStatusSelect';
 import ContactsModal from '../components/ContactsModal';
+import FournisseurDetailsModal from '../components/FournisseurDetailsModal';
 import { useAffretements } from '../hooks/useAffretements';
 import { useLivraisons } from '../hooks/useLivraisons';
 import { useClients } from '../hooks/useClients';
-import type { Client } from '../types';
+import { useFournisseurs } from '../hooks/useFournisseurs';
+import type { Client, Fournisseur } from '../types';
 
 const Dashboard = () => {
   const [activeTab, setActiveTab] = useState<'deliveries' | 'freight'>('deliveries');
@@ -15,10 +17,12 @@ const Dashboard = () => {
     start: new Date().toISOString().split('T')[0],
   });
   const [showContactsModal, setShowContactsModal] = useState<Client | null>(null);
+  const [showFournisseurModal, setShowFournisseurModal] = useState<Fournisseur | null>(null);
   
-  const { data: affretements, loading: loadingAffretements } = useAffretements();
-  const { data: livraisons, loading: loadingLivraisons } = useLivraisons();
+  const { data: affretements, loading: loadingAffretements, refresh: refreshAffretements } = useAffretements();
+  const { data: livraisons, loading: loadingLivraisons, refresh: refreshLivraisons } = useLivraisons();
   const { data: clients } = useClients();
+  const { data: fournisseurs } = useFournisseurs();
 
   // Calculate dashboard metrics
   const totalLivraisons = livraisons.length;
@@ -35,6 +39,13 @@ const Dashboard = () => {
     }
   };
 
+  const handleFournisseurClick = (fournisseurName: string) => {
+    const fournisseur = fournisseurs.find(f => f.nom === fournisseurName);
+    if (fournisseur) {
+      setShowFournisseurModal(fournisseur);
+    }
+  };
+
   if (loadingAffretements || loadingLivraisons) {
     return (
       <div className="p-8 ml-64">
@@ -47,7 +58,7 @@ const Dashboard = () => {
 
   return (
     <div className="p-8 ml-64">
-      <h1 className="text-3xl font-bold mb-8">Dashboard</h1>
+      <h1 className="text-3xl font-bold mb-8">Pilotage</h1>
       
       <div className="grid grid-cols-4 gap-6 mb-8">
         <DashboardCard
@@ -159,6 +170,13 @@ const Dashboard = () => {
         />
       )}
 
+      {showFournisseurModal && (
+        <FournisseurDetailsModal
+          fournisseur={showFournisseurModal}
+          onClose={() => setShowFournisseurModal(null)}
+        />
+      )}
+
       <div className="bg-white rounded-lg shadow-sm overflow-hidden">
         <table className="w-full">
           <thead className="bg-gray-50">
@@ -172,20 +190,34 @@ const Dashboard = () => {
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Date
               </th>
-              {activeTab === 'deliveries' && (
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Chauffeur
-                </th>
+              {activeTab === 'deliveries' ? (
+                <>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Chauffeur
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Véhicule
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Prix HT
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Prix/km
+                  </th>
+                </>
+              ) : (
+                <>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Affréteur
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Prix HT
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Vente HT
+                  </th>
+                </>
               )}
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                {activeTab === 'freight' ? 'Affréteur' : 'Véhicule'}
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Prix
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                {activeTab === 'freight' ? 'Vente' : 'Prix/km'}
-              </th>
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
@@ -193,7 +225,12 @@ const Dashboard = () => {
               ? affretements.map((freight) => (
                   <tr key={freight.id}>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <StatusBadge status={freight.status} />
+                      <SlipStatusSelect
+                        id={freight.id}
+                        status={freight.status}
+                        type="freight"
+                        onUpdate={refreshAffretements}
+                      />
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center gap-2">
@@ -206,7 +243,14 @@ const Dashboard = () => {
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">{freight.date}</td>
-                    <td className="px-6 py-4 whitespace-nowrap">{freight.subcontractor}</td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span
+                        className="cursor-pointer hover:text-blue-600"
+                        onClick={() => handleFournisseurClick(freight.subcontractor)}
+                      >
+                        {freight.subcontractor}
+                      </span>
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap">{Math.floor(freight.purchasePrice)} €</td>
                     <td className="px-6 py-4 whitespace-nowrap">{Math.floor(freight.sellingPrice)} €</td>
                   </tr>
@@ -214,7 +258,12 @@ const Dashboard = () => {
               : livraisons.map((delivery) => (
                   <tr key={delivery.id}>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <StatusBadge status={delivery.status} />
+                      <SlipStatusSelect
+                        id={delivery.id}
+                        status={delivery.status}
+                        type="transport"
+                        onUpdate={refreshLivraisons}
+                      />
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center gap-2">

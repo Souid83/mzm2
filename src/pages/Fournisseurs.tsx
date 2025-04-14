@@ -1,10 +1,11 @@
 import React, { useState, useRef } from 'react';
-import { Plus, Search, FileDown, Upload, Pencil, X, Trash2 } from 'lucide-react';
+import { Plus, Search, FileDown, Upload, Pencil, X, Trash2, Phone, Mail } from 'lucide-react';
 import { useFournisseurs, useCreateFournisseur, useUpdateFournisseur } from '../hooks/useFournisseurs';
 import { useCountries } from '../hooks/useCountries';
 import CountrySelector from '../components/CountrySelector';
 import CreateCountryModal from '../components/CreateCountryModal';
 import DeleteConfirmationModal from '../components/DeleteConfirmationModal';
+import FournisseurDetailsModal from '../components/FournisseurDetailsModal';
 import type { Fournisseur, CreateFournisseurPayload } from '../types';
 import { deleteFournisseurs } from '../services/fournisseurs';
 import { parseFournisseursExcel } from '../utils/excel-import';
@@ -254,6 +255,7 @@ const Fournisseurs = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedFournisseurs, setSelectedFournisseurs] = useState<Set<string>>(new Set());
   const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
+  const [showDetailsModal, setShowDetailsModal] = useState<Fournisseur | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
@@ -435,6 +437,13 @@ const Fournisseurs = () => {
         />
       )}
 
+      {showDetailsModal && (
+        <FournisseurDetailsModal
+          fournisseur={showDetailsModal}
+          onClose={() => setShowDetailsModal(null)}
+        />
+      )}
+
       <div className="bg-white rounded-lg shadow-sm overflow-hidden">
         <table className="w-full">
           <thead className="bg-gray-50">
@@ -474,7 +483,32 @@ const Fournisseurs = () => {
                     <Pencil size={16} />
                   </button>
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap">{fournisseur.nom}</td>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="cursor-pointer hover:text-blue-600"
+                      onClick={() => setShowDetailsModal(fournisseur)}
+                    >
+                      {fournisseur.nom}
+                    </span>
+                    <button
+                      onClick={() => setShowDetailsModal(fournisseur)}
+                      className={`${
+                        fournisseur.telephone ? 'text-blue-600' : 'text-gray-400'
+                      } hover:text-blue-800`}
+                    >
+                      <Phone size={16} />
+                    </button>
+                    <button
+                      onClick={() => setShowDetailsModal(fournisseur)}
+                      className={`${
+                        fournisseur.email ? 'text-blue-600' : 'text-gray-400'
+                      } hover:text-blue-800`}
+                    >
+                      <Mail size={16} />
+                    </button>
+                  </div>
+                </td>
                 <td className="px-6 py-4 whitespace-nowrap">{fournisseur.contact_nom}</td>
                 <td className="px-6 py-4 whitespace-nowrap">{fournisseur.email}</td>
                 <td className="px-6 py-4 whitespace-nowrap">{fournisseur.telephone}</td>
