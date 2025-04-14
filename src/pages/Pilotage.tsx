@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { Truck, Euro, Calendar, FileText, Pencil } from 'lucide-react';
+import { Truck, Euro, Calendar, FileText, Pencil, Send } from 'lucide-react';
 import DashboardCard from '../components/DashboardCard';
 import SlipStatusSelect from '../components/SlipStatusSelect';
 import SlipForm from '../components/SlipForm';
+import EmailModal from '../components/EmailModal';
 import { useSlips } from '../hooks/useSlips';
 import { generatePDF } from '../services/slips';
 import type { TransportSlip, FreightSlip } from '../types';
@@ -14,6 +15,8 @@ const Pilotage = () => {
     start: new Date().toISOString().split('T')[0],
   });
   const [editingSlip, setEditingSlip] = useState<TransportSlip | FreightSlip | null>(null);
+  const [emailSlip, setEmailSlip] = useState<TransportSlip | FreightSlip | null>(null);
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
 
   const { 
     data: transportSlips, 
@@ -35,6 +38,16 @@ const Pilotage = () => {
 
   const handleEdit = (slip: TransportSlip | FreightSlip) => {
     setEditingSlip(slip);
+  };
+
+  const handleEmail = async (slip: TransportSlip | FreightSlip) => {
+    try {
+      const url = await generatePDF(slip);
+      setPdfUrl(url);
+      setEmailSlip(slip);
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+    }
   };
 
   const handleUpdate = async (data: any) => {
@@ -182,6 +195,17 @@ const Pilotage = () => {
         </div>
       </div>
 
+      {emailSlip && pdfUrl && (
+        <EmailModal
+          client={emailSlip.clients}
+          pdfUrl={pdfUrl}
+          onClose={() => {
+            setEmailSlip(null);
+            setPdfUrl(null);
+          }}
+        />
+      )}
+
       <div className="bg-white rounded-lg shadow-sm overflow-hidden">
         <table className="w-full">
           <thead className="bg-gray-50">
@@ -279,6 +303,17 @@ const Pilotage = () => {
                         </div>
                         <div className="group relative">
                           <button
+                            onClick={() => handleEmail(slip)}
+                            className="text-gray-600 hover:text-blue-600"
+                          >
+                            <Send size={20} />
+                          </button>
+                          <span className="absolute -top-8 right-0 bg-gray-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
+                            Envoyer le bordereau
+                          </span>
+                        </div>
+                        <div className="group relative">
+                          <button
                             onClick={() => generatePDF(slip)}
                             className="text-blue-600 hover:text-blue-800"
                           >
@@ -337,6 +372,17 @@ const Pilotage = () => {
                           </button>
                           <span className="absolute -top-8 right-0 bg-gray-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
                             Modifier l'ensemble du bordereau
+                          </span>
+                        </div>
+                        <div className="group relative">
+                          <button
+                            onClick={() => handleEmail(slip)}
+                            className="text-gray-600 hover:text-blue-600"
+                          >
+                            <Send size={20} />
+                          </button>
+                          <span className="absolute -top-8 right-0 bg-gray-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
+                            Envoyer le bordereau
                           </span>
                         </div>
                         <div className="group relative">

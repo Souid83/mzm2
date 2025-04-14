@@ -8,7 +8,8 @@ import {
   FileText,
   AlertTriangle,
   PackageSearch,
-  Clock
+  Clock,
+  Settings
 } from 'lucide-react';
 
 const Sidebar = () => {
@@ -117,6 +118,18 @@ const Sidebar = () => {
         >
           <AlertTriangle size={20} />
           <span>Litiges</span>
+        </NavLink>
+
+        <NavLink
+          to="/settings"
+          className={({ isActive }) =>
+            `flex items-center space-x-3 p-3 rounded-lg ${
+              isActive ? 'bg-gray-700' : 'hover:bg-gray-700'
+            }`
+          }
+        >
+          <Settings size={20} />
+          <span>Paramètres</span>
         </NavLink>
       </nav>
     </div>

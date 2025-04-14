@@ -1,8 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { sendEmail } from '../services/email';
 import type { Client } from '../types';
+
+interface EmailSettings {
+  email: string;
+  signature: string;
+  template: string;
+}
 
 interface EmailModalProps {
   client: Client;
@@ -13,10 +19,20 @@ interface EmailModalProps {
 export default function EmailModal({ client, pdfUrl, onClose }: EmailModalProps) {
   const [selectedEmail, setSelectedEmail] = useState(client.email || '');
   const [customEmail, setCustomEmail] = useState('');
-  const [emailBody, setEmailBody] = useState(
-    `Bonjour,\n\nVeuillez trouver ci-joint le bordereau de transport.\n\nCordialement,\nMZN Transport`
-  );
+  const [emailBody, setEmailBody] = useState('');
   const [sending, setSending] = useState(false);
+
+  useEffect(() => {
+    // Load email settings from localStorage
+    const savedSettings = localStorage.getItem('emailSettings');
+    if (savedSettings) {
+      const settings: EmailSettings = JSON.parse(savedSettings);
+      const body = settings.template.replace('{signature}', settings.signature);
+      setEmailBody(body);
+    } else {
+      setEmailBody(`Bonjour,\n\nVeuillez trouver ci-joint le bordereau de transport.\n\nCordialement,\nMZN Transport`);
+    }
+  }, []);
 
   // Combine all available emails
   const availableEmails = [
