@@ -1,11 +1,16 @@
-import React, { useState } from 'react';
-import { Truck, Euro, Calendar, FileText, Pencil, Send } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Truck, Euro, Calendar, Pencil, Send, Upload } from 'lucide-react';
+import toast from 'react-hot-toast';
 import DashboardCard from '../components/DashboardCard';
 import SlipStatusSelect from '../components/SlipStatusSelect';
 import SlipForm from '../components/SlipForm';
 import EmailModal from '../components/EmailModal';
-import { useSlips } from '../hooks/useSlips';
-import { generatePDF } from '../services/slips';
+import DocumentUploaderModal from '../components/DocumentUploaderModal';
+import DocumentViewerModal from '../components/DocumentViewerModal';
+import ActionButtons from '../components/ActionButtons';
+import TableHeader from '../components/TableHeader';
+import { generatePDF, downloadFreightPDF, getAllTransportSlips, getAllFreightSlips } from '../services/slips';
+import { downloadBPA } from '../services/pdfTemplates/bpa';
 import type { TransportSlip, FreightSlip } from '../types';
 
 const Pilotage = () => {
@@ -16,7 +21,8 @@ const Pilotage = () => {
   });
   const [editingSlip, setEditingSlip] = useState<TransportSlip | FreightSlip | null>(null);
   const [emailSlip, setEmailSlip] = useState<TransportSlip | FreightSlip | null>(null);
-  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [uploadingSlip, setUploadingSlip] = useState<TransportSlip | FreightSlip | null>(null);
+  const [viewingDocuments, setViewingDocuments] = useState<TransportSlip | FreightSlip | null>(null);
 
   const { 
     data: transportSlips, 
@@ -41,12 +47,38 @@ const Pilotage = () => {
   };
 
   const handleEmail = async (slip: TransportSlip | FreightSlip) => {
+    setEmailSlip(slip);
+  };
+
+  const handleUpload = (slip: TransportSlip | FreightSlip) => {
+    setUploadingSlip(slip);
+  };
+
+  const handleView = (slip: TransportSlip | FreightSlip) => {
+    setViewingDocuments(slip);
+  };
+
+  const handleDownload = async (slip: TransportSlip | FreightSlip) => {
     try {
-      const url = await generatePDF(slip);
-      setPdfUrl(url);
-      setEmailSlip(slip);
+      if ('fournisseurs' in slip) {
+        await downloadFreightPDF(slip);
+      } else {
+        await generatePDF(slip);
+      }
+      toast.success('Bordereau téléchargé avec succès');
     } catch (error) {
-      console.error('Error generating PDF:', error);
+      console.error('Error downloading slip:', error);
+      toast.error('Erreur lors du téléchargement du bordereau');
+    }
+  };
+
+  const handleDownloadBPA = async (slip: FreightSlip) => {
+    try {
+      await downloadBPA(slip);
+      toast.success('BPA téléchargé avec succès');
+    } catch (error) {
+      console.error('Error downloading BPA:', error);
+      toast.error('Erreur lors du téléchargement du BPA');
     }
   };
 
@@ -64,6 +96,10 @@ const Pilotage = () => {
     } catch (error) {
       console.error('Error updating slip:', error);
     }
+  };
+
+  const getDocumentCount = (slip: TransportSlip | FreightSlip) => {
+    return slip.documents ? Object.keys(slip.documents).length : 0;
   };
 
   if (loadingTransport || loadingFreight) {
@@ -195,14 +231,31 @@ const Pilotage = () => {
         </div>
       </div>
 
-      {emailSlip && pdfUrl && (
+      {emailSlip && (
         <EmailModal
           client={emailSlip.clients}
-          pdfUrl={pdfUrl}
+          pdfUrl=""
           onClose={() => {
             setEmailSlip(null);
-            setPdfUrl(null);
           }}
+        />
+      )}
+
+      {uploadingSlip && (
+        <DocumentUploaderModal
+          slipId={uploadingSlip.id}
+          slipType={activeTab === 'deliveries' ? 'transport' : 'freight'}
+          onClose={() => setUploadingSlip(null)}
+          onUploadComplete={activeTab === 'deliveries' ? refreshTransport : refreshFreight}
+        />
+      )}
+
+      {viewingDocuments && (
+        <DocumentViewerModal
+          slipId={viewingDocuments.id}
+          slipType={activeTab === 'deliveries' ? 'transport' : 'freight'}
+          onClose={() => setViewingDocuments(null)}
+          onDocumentDeleted={activeTab === 'deliveries' ? refreshTransport : refreshFreight}
         />
       )}
 
@@ -210,49 +263,24 @@ const Pilotage = () => {
         <table className="w-full">
           <thead className="bg-gray-50">
             <tr>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Statut
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Client
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Date
-              </th>
+              <TableHeader>Statut</TableHeader>
+              <TableHeader>Client</TableHeader>
+              <TableHeader>Date</TableHeader>
               {activeTab === 'deliveries' ? (
                 <>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Chauffeur
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Véhicule
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Prix HT
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Prix/km
-                  </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-32">
-                    Actions
-                  </th>
+                  <TableHeader>Chauffeur</TableHeader>
+                  <TableHeader>Véhicule</TableHeader>
+                  <TableHeader>Prix HT</TableHeader>
+                  <TableHeader>Prix/km</TableHeader>
                 </>
               ) : (
                 <>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Affréteur
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Prix HT
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Vente HT
-                  </th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider w-32">
-                    Actions
-                  </th>
+                  <TableHeader>Affréteur</TableHeader>
+                  <TableHeader>Prix HT</TableHeader>
+                  <TableHeader>Vente HT</TableHeader>
                 </>
               )}
+              <TableHeader align="center">Actions</TableHeader>
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
@@ -260,17 +288,12 @@ const Pilotage = () => {
               ? freightSlips.map((slip) => (
                   <tr key={slip.id}>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="group relative">
-                        <SlipStatusSelect
-                          id={slip.id}
-                          status={slip.status}
-                          type="freight"
-                          onUpdate={refreshFreight}
-                        />
-                        <span className="absolute -top-8 left-1/2 -translate-x-1/2 bg-gray-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
-                          Changer le statut
-                        </span>
-                      </div>
+                      <SlipStatusSelect
+                        id={slip.id}
+                        status={slip.status}
+                        type="freight"
+                        onUpdate={refreshFreight}
+                      />
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       {slip.clients?.nom}
@@ -288,59 +311,30 @@ const Pilotage = () => {
                       {/* TODO: Add selling price */}
                       - €
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right">
-                      <div className="flex items-center justify-end space-x-4 pr-4">
-                        <div className="group relative">
-                          <button
-                            onClick={() => handleEdit(slip)}
-                            className="text-gray-600 hover:text-blue-600"
-                          >
-                            <Pencil size={20} />
-                          </button>
-                          <span className="absolute -top-8 right-0 bg-gray-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
-                            Modifier l'ensemble du bordereau
-                          </span>
-                        </div>
-                        <div className="group relative">
-                          <button
-                            onClick={() => handleEmail(slip)}
-                            className="text-gray-600 hover:text-blue-600"
-                          >
-                            <Send size={20} />
-                          </button>
-                          <span className="absolute -top-8 right-0 bg-gray-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
-                            Envoyer le bordereau
-                          </span>
-                        </div>
-                        <div className="group relative">
-                          <button
-                            onClick={() => generatePDF(slip)}
-                            className="text-blue-600 hover:text-blue-800"
-                          >
-                            <FileText size={20} />
-                          </button>
-                          <span className="absolute -top-8 right-0 bg-gray-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
-                            Télécharger le bordereau
-                          </span>
-                        </div>
-                      </div>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <ActionButtons
+                        slip={slip}
+                        onEdit={() => handleEdit(slip)}
+                        onEmail={() => handleEmail(slip)}
+                        onUpload={() => handleUpload(slip)}
+                        onView={() => handleView(slip)}
+                        onDownload={() => handleDownload(slip)}
+                        onDownloadBPA={() => handleDownloadBPA(slip)}
+                        documentCount={getDocumentCount(slip)}
+                        showBPA={true}
+                      />
                     </td>
                   </tr>
                 ))
               : transportSlips.map((slip) => (
                   <tr key={slip.id}>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="group relative">
-                        <SlipStatusSelect
-                          id={slip.id}
-                          status={slip.status}
-                          type="transport"
-                          onUpdate={refreshTransport}
-                        />
-                        <span className="absolute -top-8 left-1/2 -translate-x-1/2 bg-gray-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
-                          Changer le statut
-                        </span>
-                      </div>
+                      <SlipStatusSelect
+                        id={slip.id}
+                        status={slip.status}
+                        type="transport"
+                        onUpdate={refreshTransport}
+                      />
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       {slip.clients?.nom}
@@ -361,42 +355,16 @@ const Pilotage = () => {
                       {/* TODO: Add price per km calculation */}
                       - €
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right">
-                      <div className="flex items-center justify-end space-x-4 pr-4">
-                        <div className="group relative">
-                          <button
-                            onClick={() => handleEdit(slip)}
-                            className="text-gray-600 hover:text-blue-600"
-                          >
-                            <Pencil size={20} />
-                          </button>
-                          <span className="absolute -top-8 right-0 bg-gray-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
-                            Modifier l'ensemble du bordereau
-                          </span>
-                        </div>
-                        <div className="group relative">
-                          <button
-                            onClick={() => handleEmail(slip)}
-                            className="text-gray-600 hover:text-blue-600"
-                          >
-                            <Send size={20} />
-                          </button>
-                          <span className="absolute -top-8 right-0 bg-gray-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
-                            Envoyer le bordereau
-                          </span>
-                        </div>
-                        <div className="group relative">
-                          <button
-                            onClick={() => generatePDF(slip)}
-                            className="text-blue-600 hover:text-blue-800"
-                          >
-                            <FileText size={20} />
-                          </button>
-                          <span className="absolute -top-8 right-0 bg-gray-800 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
-                            Télécharger le bordereau
-                          </span>
-                        </div>
-                      </div>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <ActionButtons
+                        slip={slip}
+                        onEdit={() => handleEdit(slip)}
+                        onEmail={() => handleEmail(slip)}
+                        onUpload={() => handleUpload(slip)}
+                        onView={() => handleView(slip)}
+                        onDownload={() => handleDownload(slip)}
+                        documentCount={getDocumentCount(slip)}
+                      />
                     </td>
                   </tr>
                 ))}
@@ -415,5 +383,47 @@ const Pilotage = () => {
     </div>
   );
 };
+
+// Custom hook for fetching slips
+function useSlips(type: 'transport' | 'freight', startDate?: string, endDate?: string) {
+  const [data, setData] = useState<(TransportSlip | FreightSlip)[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    async function fetchData() {
+      try {
+        const slips = await (type === 'transport' 
+          ? getAllTransportSlips(startDate, endDate)
+          : getAllFreightSlips(startDate, endDate));
+        setData(slips);
+        setError(null);
+      } catch (err) {
+        setError(err instanceof Error ? err : new Error('An error occurred'));
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchData();
+  }, [type, startDate, endDate]);
+
+  const refresh = async () => {
+    setLoading(true);
+    try {
+      const slips = await (type === 'transport'
+        ? getAllTransportSlips(startDate, endDate)
+        : getAllFreightSlips(startDate, endDate));
+      setData(slips);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error('An error occurred'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return { data, loading, error, refresh };
+}
 
 export default Pilotage;

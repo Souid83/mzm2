@@ -2,7 +2,8 @@ import { supabase } from '../lib/supabase';
 import type { TransportSlip, FreightSlip, SlipNumberConfig, SlipStatus } from '../types';
 import { format } from 'date-fns';
 import { fr } from 'date-fns/locale';
-import { generatePdfFromHtml } from '../utils/pdf';
+import { jsPDF } from 'jspdf';
+import html2canvas from 'html2canvas';
 
 async function getNextSlipNumber(type: 'transport' | 'freight'): Promise<string> {
   const { data: existingConfig, error: checkError } = await supabase
@@ -83,48 +84,44 @@ export async function createTransportSlip(data: Omit<TransportSlip, 'id' | 'numb
 export async function createFreightSlip(data: Omit<FreightSlip, 'id' | 'number' | 'created_at' | 'updated_at'>): Promise<FreightSlip> {
   const number = await getNextSlipNumber('freight');
 
+  // Extract commercial from data before inserting
+  const { commercial_id, ...slipData } = data;
+
   const { data: slip, error } = await supabase
     .from('freight_slips')
-    .insert([{ ...data, number }])
+    .insert([{ ...slipData, number, commercial_id }])
     .select(`
-      id,
-      number,
-      status,
-      client_id,
-      clients (
-        nom
-      ),
-      fournisseur_id,
-      fournisseurs (
-        nom,
-        telephone
-      ),
-      loading_date,
-      loading_time,
-      loading_address,
-      loading_contact,
-      delivery_date,
-      delivery_time,
-      delivery_address,
-      delivery_contact,
-      goods_description,
-      volume,
-      weight,
-      vehicle_type,
-      exchange_type,
-      instructions,
-      price,
-      payment_method,
-      observations,
-      photo_required,
-      documents,
-      commercial_id,
-      users:commercial_id (
-        name
-      ),
-      created_at,
-      updated_at
-    `)
+  id,
+  number,
+  status,
+  client_id,
+  clients(nom),
+  fournisseur_id,
+  fournisseurs(nom, telephone),
+  loading_date,
+  loading_time,
+  loading_address,
+  loading_contact,
+  delivery_date,
+  delivery_time,
+  delivery_address,
+  delivery_contact,
+  goods_description,
+  volume,
+  weight,
+  vehicle_type,
+  exchange_type,
+  instructions,
+  price,
+  payment_method,
+  observations,
+  photo_required,
+  documents,
+  commercial_id,
+  users:commercial_id(name),
+  created_at,
+  updated_at
+`)
     .single();
 
   if (error) {
@@ -200,44 +197,38 @@ export async function getAllFreightSlips(startDate?: string, endDate?: string): 
   let query = supabase
     .from('freight_slips')
     .select(`
-      id,
-      number,
-      status,
-      client_id,
-      clients (
-        nom
-      ),
-      fournisseur_id,
-      fournisseurs (
-        nom,
-        telephone
-      ),
-      loading_date,
-      loading_time,
-      loading_address,
-      loading_contact,
-      delivery_date,
-      delivery_time,
-      delivery_address,
-      delivery_contact,
-      goods_description,
-      volume,
-      weight,
-      vehicle_type,
-      exchange_type,
-      instructions,
-      price,
-      payment_method,
-      observations,
-      photo_required,
-      documents,
-      commercial_id,
-      users:commercial_id (
-        name
-      ),
-      created_at,
-      updated_at
-    `)
+  id,
+  number,
+  status,
+  client_id,
+  clients(nom),
+  fournisseur_id,
+  fournisseurs(nom, telephone),
+  loading_date,
+  loading_time,
+  loading_address,
+  loading_contact,
+  delivery_date,
+  delivery_time,
+  delivery_address,
+  delivery_contact,
+  goods_description,
+  volume,
+  weight,
+  vehicle_type,
+  exchange_type,
+  instructions,
+  price,
+  payment_method,
+  observations,
+  photo_required,
+  documents,
+  commercial_id,
+  users:commercial_id(name),
+  created_at,
+  updated_at
+`)
+
     .order('created_at', { ascending: false });
 
   if (startDate) {
@@ -271,7 +262,50 @@ export async function updateSlipStatus(
   }
 }
 
-export const generatePDF = async (slip: TransportSlip | FreightSlip, type: 'transport' | 'freight' = 'transport'): Promise<Blob> => {
+async function generatePDFFromTemplate(slip: FreightSlip | TransportSlip, template: string, data: Record<string, string>): Promise<Blob> {
+  // Create a temporary container
+  const container = document.createElement('div');
+  container.innerHTML = template;
+
+  // Replace placeholders
+  Object.entries(data).forEach(([key, value]) => {
+    const placeholder = new RegExp(`{{${key}}}`, 'g');
+    container.innerHTML = container.innerHTML.replace(placeholder, value || '');
+  });
+
+  // Add container to document
+  document.body.appendChild(container);
+
+  try {
+    // Convert to canvas
+    const canvas = await html2canvas(container, {
+      scale: 2,
+      useCORS: true,
+      logging: false
+    });
+
+    // Create PDF
+    const pdf = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4'
+    });
+
+    // Add canvas to PDF
+    const imgData = canvas.toDataURL('image/png');
+    const pdfWidth = pdf.internal.pageSize.getWidth();
+    const pdfHeight = pdf.internal.pageSize.getHeight();
+    pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+
+    // Return as blob
+    return pdf.output('blob');
+  } finally {
+    // Clean up
+    document.body.removeChild(container);
+  }
+}
+
+export const generatePDF = async (slip: TransportSlip | FreightSlip, type: 'transport' | 'freight' = 'transport'): Promise<void> => {
   try {
     // Fetch template
     const response = await fetch('/src/templates/affretement.html');
@@ -297,21 +331,25 @@ export const generatePDF = async (slip: TransportSlip | FreightSlip, type: 'tran
       prix_ht: slip.price.toString(),
       mode_reglement: slip.payment_method,
       date_cachet: format(new Date(), 'dd/MM/yyyy', { locale: fr }),
-      nom_interlocuteur: type === 'freight' ? slip.fournisseurs?.nom || '' : ''
+      nom_interlocuteur: type === 'freight' ? slip.fournisseurs?.contact_nom || '' : ''
     };
 
-    return generatePdfFromHtml(template, data);
+    // Generate PDF
+    const blob = await generatePDFFromTemplate(slip, template, data);
+
+    // Download
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${type === 'transport' ? 'Transport' : 'Affretement'}_${slip.number.replace(/\s/g, '')}.pdf`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
   } catch (error) {
     console.error('Error generating PDF:', error);
     throw error;
   }
 };
 
-export const downloadFreightPDF = (url: string, fileName: string) => {
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = fileName;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-};
+export const downloadFreightPDF = generatePDF;

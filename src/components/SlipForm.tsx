@@ -1,6 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { useClients } from '../hooks/useClients';
-import type { Client, TransportSlip, FreightSlip } from '../types';
+import { useFournisseurs } from '../hooks/useFournisseurs';
+import { useUser } from '../contexts/UserContext';
+import type { Client, TransportSlip, FreightSlip, Fournisseur } from '../types';
+
+const VEHICLE_TYPES = ['T1', 'T2', 'T3', 'T4'];
+const SALES_TEAM = ['ORLANE', 'SALOMÉ', 'ELIOT', 'MEHDI'];
+
+interface AddressFields {
+  company: string;
+  address: string;
+  postalCode: string;
+  city: string;
+}
 
 interface SlipFormProps {
   type: 'transport' | 'freight';
@@ -17,67 +29,147 @@ const SlipForm: React.FC<SlipFormProps> = ({
   loading = false,
   initialData
 }) => {
+  const { user } = useUser();
   const { data: clients } = useClients();
+  const { data: fournisseurs } = useFournisseurs();
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
+  const [selectedFournisseur, setSelectedFournisseur] = useState<Fournisseur | null>(null);
+  const [purchasePrice, setPurchasePrice] = useState<number>(0);
+  const [sellingPrice, setSellingPrice] = useState<number>(0);
+  const [margin, setMargin] = useState<number>(0);
+  const [marginRate, setMarginRate] = useState<number>(0);
+
+  const [loadingAddress, setLoadingAddress] = useState<AddressFields>({
+    company: '',
+    address: '',
+    postalCode: '',
+    city: ''
+  });
+
+  const [deliveryAddress, setDeliveryAddress] = useState<AddressFields>({
+    company: '',
+    address: '',
+    postalCode: '',
+    city: ''
+  });
+
   const [formData, setFormData] = useState({
     client_id: '',
+    fournisseur_id: '',
+    commercial: '',
     loading_date: '',
     loading_time: '',
-    loading_address: '',
     loading_contact: '',
     delivery_date: '',
     delivery_time: '',
-    delivery_address: '',
     delivery_contact: '',
     goods_description: '',
     volume: '',
     weight: '',
-    vehicle_type: '',
-    exchange_type: '',
+    vehicle_type: 'T1',
+    exchange_pallets: 'false',
     instructions: 'BIEN ARRIMER LA MARCHANDISE',
     price: '',
-    payment_method: '',
+    payment_method: type === 'freight' ? 'Virement 30j FDM' : '',
     observations: '',
     photo_required: true,
     order_number: ''
   });
 
-  // Pre-fill form when initialData changes
+  useEffect(() => {
+    if (type === 'freight' && user?.name) {
+      const upperName = user.name.toUpperCase();
+      const matchingName = SALES_TEAM.find(name => 
+        name.normalize("NFD").replace(/[\u0300-\u036f]/g, "") === 
+        upperName.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      );
+      if (matchingName) {
+        setFormData(prev => ({ ...prev, commercial: matchingName }));
+      }
+    }
+  }, [user, type]);
+
   useEffect(() => {
     if (initialData) {
+      const loadingParts = initialData.loading_address.split(',').map(p => p.trim());
+      const deliveryParts = initialData.delivery_address.split(',').map(p => p.trim());
+      
+      setLoadingAddress({
+        company: loadingParts[0] || '',
+        address: loadingParts[1] || '',
+        postalCode: loadingParts[2]?.split(' ')[0] || '',
+        city: loadingParts[2]?.split(' ').slice(1).join(' ') || ''
+      });
+
+      setDeliveryAddress({
+        company: deliveryParts[0] || '',
+        address: deliveryParts[1] || '',
+        postalCode: deliveryParts[2]?.split(' ')[0] || '',
+        city: deliveryParts[2]?.split(' ').slice(1).join(' ') || ''
+      });
+
       setFormData({
+        ...formData,
         client_id: initialData.client_id || '',
         loading_date: initialData.loading_date || '',
         loading_time: initialData.loading_time || '',
-        loading_address: initialData.loading_address || '',
         loading_contact: initialData.loading_contact || '',
         delivery_date: initialData.delivery_date || '',
         delivery_time: initialData.delivery_time || '',
-        delivery_address: initialData.delivery_address || '',
         delivery_contact: initialData.delivery_contact || '',
         goods_description: initialData.goods_description || '',
         volume: initialData.volume?.toString() || '',
         weight: initialData.weight?.toString() || '',
-        vehicle_type: initialData.vehicle_type || '',
-        exchange_type: initialData.exchange_type || '',
+        vehicle_type: initialData.vehicle_type || 'T1',
+        exchange_pallets: 'false',
         instructions: initialData.instructions || 'BIEN ARRIMER LA MARCHANDISE',
         price: initialData.price?.toString() || '',
-        payment_method: initialData.payment_method || '',
+        payment_method: initialData.payment_method || (type === 'freight' ? 'Virement 30j FDM' : ''),
         observations: initialData.observations || '',
         photo_required: initialData.photo_required ?? true,
-        order_number: 'order_number' in initialData ? initialData.order_number || '' : ''
+        order_number: 'order_number' in initialData ? initialData.order_number || '' : '',
+        commercial: '',
+        fournisseur_id: ''
       });
 
-      // Set selected client
       const client = clients.find(c => c.id === initialData.client_id);
       setSelectedClient(client || null);
+
+      if ('fournisseur_id' in initialData && initialData.fournisseur_id) {
+        const fournisseur = fournisseurs.find(f => f.id === initialData.fournisseur_id);
+        setSelectedFournisseur(fournisseur || null);
+        setFormData(prev => ({ ...prev, fournisseur_id: initialData.fournisseur_id || '' }));
+      }
     }
-  }, [initialData, clients]);
+  }, [initialData, clients, fournisseurs]);
+
+  useEffect(() => {
+    if (type === 'freight') {
+      const margin = sellingPrice - purchasePrice;
+      const rate = sellingPrice > 0 ? (margin / sellingPrice) * 100 : 0;
+      setMargin(margin);
+      setMarginRate(rate);
+    }
+  }, [purchasePrice, sellingPrice, type]);
 
   const handleClientChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const client = clients.find(c => c.id === e.target.value);
     setSelectedClient(client || null);
     setFormData(prev => ({ ...prev, client_id: e.target.value }));
+  };
+
+  const handleFournisseurChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const fournisseur = fournisseurs.find(f => f.id === e.target.value);
+    setSelectedFournisseur(fournisseur || null);
+    setFormData(prev => ({ ...prev, fournisseur_id: e.target.value }));
+  };
+
+  const handleLoadingAddressChange = (field: keyof AddressFields, value: string) => {
+    setLoadingAddress(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleDeliveryAddressChange = (field: keyof AddressFields, value: string) => {
+    setDeliveryAddress(prev => ({ ...prev, [field]: value }));
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -90,12 +182,27 @@ const SlipForm: React.FC<SlipFormProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSubmit({
+
+    const fullLoadingAddress = `${loadingAddress.company}, ${loadingAddress.address}, ${loadingAddress.postalCode} ${loadingAddress.city}`;
+    const fullDeliveryAddress = `${deliveryAddress.company}, ${deliveryAddress.address}, ${deliveryAddress.postalCode} ${deliveryAddress.city}`;
+
+    const submitData = {
       ...formData,
+      loading_address: fullLoadingAddress,
+      delivery_address: fullDeliveryAddress,
       volume: formData.volume ? Number(formData.volume) : null,
       weight: formData.weight ? Number(formData.weight) : null,
       price: Number(formData.price)
-    });
+    };
+
+    if (type === 'freight') {
+      submitData.purchase_price = purchasePrice;
+      submitData.selling_price = sellingPrice;
+      submitData.margin = margin;
+      submitData.margin_rate = marginRate;
+    }
+
+    onSubmit(submitData);
   };
 
   return (
@@ -107,7 +214,6 @@ const SlipForm: React.FC<SlipFormProps> = ({
 
         <form onSubmit={handleSubmit} className="space-y-6">
           <div className="grid grid-cols-2 gap-6">
-            {/* Client */}
             <div>
               <label className="block text-sm font-medium text-gray-700">Client</label>
               <select
@@ -124,7 +230,51 @@ const SlipForm: React.FC<SlipFormProps> = ({
               </select>
             </div>
 
-            {/* Order Number (Transport only) */}
+            {type === 'freight' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700">
+                  Quel commercial fait la saisie ?
+                </label>
+                <select
+                  name="commercial"
+                  value={formData.commercial}
+                  onChange={handleInputChange}
+                  required
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                >
+                  <option value="">Sélectionner un commercial</option>
+                  {SALES_TEAM.map(name => (
+                    <option key={name} value={name}>{name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {type === 'freight' && (
+              <div className="col-span-2">
+                <label className="block text-sm font-medium text-gray-700">Sous-traitant</label>
+                <select
+                  name="fournisseur_id"
+                  value={formData.fournisseur_id}
+                  onChange={handleFournisseurChange}
+                  required
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                >
+                  <option value="">Sélectionner un fournisseur</option>
+                  {fournisseurs.map(fournisseur => (
+                    <option key={fournisseur.id} value={fournisseur.id}>{fournisseur.nom}</option>
+                  ))}
+                </select>
+                {selectedFournisseur && (
+                  <div className="mt-2 p-4 bg-gray-50 rounded-md">
+                    <p><strong>Contact:</strong> {selectedFournisseur.contact_nom}</p>
+                    <p><strong>Téléphone:</strong> {selectedFournisseur.telephone}</p>
+                    <p><strong>Email:</strong> {selectedFournisseur.email}</p>
+                  </div>
+                )}
+              </div>
+            )}
+
             {type === 'transport' && selectedClient?.numero_commande_requis && (
               <div>
                 <label className="block text-sm font-medium text-gray-700">Numéro de commande client</label>
@@ -139,105 +289,166 @@ const SlipForm: React.FC<SlipFormProps> = ({
               </div>
             )}
 
-            {/* Loading Info */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Date de chargement</label>
-              <input
-                type="date"
-                name="loading_date"
-                value={formData.loading_date}
-                onChange={handleInputChange}
-                required
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-              />
+            <div className="col-span-2 border p-4 rounded-md">
+              <h3 className="text-lg font-medium mb-4">Adresse de chargement</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Entreprise</label>
+                  <input
+                    type="text"
+                    value={loadingAddress.company}
+                    onChange={(e) => handleLoadingAddressChange('company', e.target.value)}
+                    required
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Adresse</label>
+                  <input
+                    type="text"
+                    value={loadingAddress.address}
+                    onChange={(e) => handleLoadingAddressChange('address', e.target.value)}
+                    required
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Code postal</label>
+                  <input
+                    type="text"
+                    value={loadingAddress.postalCode}
+                    onChange={(e) => handleLoadingAddressChange('postalCode', e.target.value)}
+                    required
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Ville</label>
+                  <input
+                    type="text"
+                    value={loadingAddress.city}
+                    onChange={(e) => handleLoadingAddressChange('city', e.target.value)}
+                    required
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+              <div className="mt-4">
+                <label className="block text-sm font-medium text-gray-700">Contact chargement</label>
+                <input
+                  type="text"
+                  name="loading_contact"
+                  value={formData.loading_contact}
+                  onChange={handleInputChange}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4 mt-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Date</label>
+                  <input
+                    type="date"
+                    name="loading_date"
+                    value={formData.loading_date}
+                    onChange={handleInputChange}
+                    required
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Heure</label>
+                  <input
+                    type="time"
+                    name="loading_time"
+                    value={formData.loading_time}
+                    onChange={handleInputChange}
+                    required
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Heure de chargement</label>
-              <input
-                type="time"
-                name="loading_time"
-                value={formData.loading_time}
-                onChange={handleInputChange}
-                required
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-              />
+            <div className="col-span-2 border p-4 rounded-md">
+              <h3 className="text-lg font-medium mb-4">Adresse de livraison</h3>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Entreprise</label>
+                  <input
+                    type="text"
+                    value={deliveryAddress.company}
+                    onChange={(e) => handleDeliveryAddressChange('company', e.target.value)}
+                    required
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Adresse</label>
+                  <input
+                    type="text"
+                    value={deliveryAddress.address}
+                    onChange={(e) => handleDeliveryAddressChange('address', e.target.value)}
+                    required
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Code postal</label>
+                  <input
+                    type="text"
+                    value={deliveryAddress.postalCode}
+                    onChange={(e) => handleDeliveryAddressChange('postalCode', e.target.value)}
+                    required
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Ville</label>
+                  <input
+                    type="text"
+                    value={deliveryAddress.city}
+                    onChange={(e) => handleDeliveryAddressChange('city', e.target.value)}
+                    required
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+              <div className="mt-4">
+                <label className="block text-sm font-medium text-gray-700">Contact livraison</label>
+                <input
+                  type="text"
+                  name="delivery_contact"
+                  value={formData.delivery_contact}
+                  onChange={handleInputChange}
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4 mt-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Date</label>
+                  <input
+                    type="date"
+                    name="delivery_date"
+                    value={formData.delivery_date}
+                    onChange={handleInputChange}
+                    required
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Heure</label>
+                  <input
+                    type="time"
+                    name="delivery_time"
+                    value={formData.delivery_time}
+                    onChange={handleInputChange}
+                    required
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
             </div>
 
-            <div className="col-span-2">
-              <label className="block text-sm font-medium text-gray-700">Adresse de chargement</label>
-              <input
-                type="text"
-                name="loading_address"
-                value={formData.loading_address}
-                onChange={handleInputChange}
-                required
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-              />
-            </div>
-
-            <div className="col-span-2">
-              <label className="block text-sm font-medium text-gray-700">Contact chargement</label>
-              <input
-                type="text"
-                name="loading_contact"
-                value={formData.loading_contact}
-                onChange={handleInputChange}
-                required
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-              />
-            </div>
-
-            {/* Delivery Info */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Date de livraison</label>
-              <input
-                type="date"
-                name="delivery_date"
-                value={formData.delivery_date}
-                onChange={handleInputChange}
-                required
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Heure de livraison</label>
-              <input
-                type="time"
-                name="delivery_time"
-                value={formData.delivery_time}
-                onChange={handleInputChange}
-                required
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-              />
-            </div>
-
-            <div className="col-span-2">
-              <label className="block text-sm font-medium text-gray-700">Adresse de livraison</label>
-              <input
-                type="text"
-                name="delivery_address"
-                value={formData.delivery_address}
-                onChange={handleInputChange}
-                required
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-              />
-            </div>
-
-            <div className="col-span-2">
-              <label className="block text-sm font-medium text-gray-700">Contact livraison</label>
-              <input
-                type="text"
-                name="delivery_contact"
-                value={formData.delivery_contact}
-                onChange={handleInputChange}
-                required
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-              />
-            </div>
-
-            {/* Goods Info */}
             <div className="col-span-2">
               <label className="block text-sm font-medium text-gray-700">Marchandise / désignation</label>
               <input
@@ -276,26 +487,31 @@ const SlipForm: React.FC<SlipFormProps> = ({
 
             <div>
               <label className="block text-sm font-medium text-gray-700">Type de véhicule</label>
-              <input
-                type="text"
+              <select
                 name="vehicle_type"
                 value={formData.vehicle_type}
                 onChange={handleInputChange}
                 required
                 className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-              />
+              >
+                {VEHICLE_TYPES.map(type => (
+                  <option key={type} value={type}>{type}</option>
+                ))}
+              </select>
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700">Type d'échange</label>
-              <input
-                type="text"
-                name="exchange_type"
-                value={formData.exchange_type}
+              <label className="block text-sm font-medium text-gray-700">Échange palettes</label>
+              <select
+                name="exchange_pallets"
+                value={formData.exchange_pallets}
                 onChange={handleInputChange}
                 required
                 className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-              />
+              >
+                <option value="false">Non</option>
+                <option value="true">Oui</option>
+              </select>
             </div>
 
             <div className="col-span-2">
@@ -310,18 +526,65 @@ const SlipForm: React.FC<SlipFormProps> = ({
               />
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Prix de transport (HT)</label>
-              <input
-                type="number"
-                name="price"
-                value={formData.price}
-                onChange={handleInputChange}
-                step="0.01"
-                required
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-              />
-            </div>
+            {type === 'freight' ? (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Prix d'achat (€ HT)</label>
+                  <input
+                    type="number"
+                    value={purchasePrice}
+                    onChange={(e) => setPurchasePrice(Number(e.target.value))}
+                    step="0.01"
+                    required
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Prix de vente (€ HT)</label>
+                  <input
+                    type="number"
+                    value={sellingPrice}
+                    onChange={(e) => setSellingPrice(Number(e.target.value))}
+                    step="0.01"
+                    required
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Marge (€)</label>
+                  <input
+                    type="number"
+                    value={margin}
+                    readOnly
+                    className="mt-1 block w-full rounded-md border-gray-300 bg-gray-50"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Taux de marge (%)</label>
+                  <input
+                    type="number"
+                    value={marginRate.toFixed(2)}
+                    readOnly
+                    className={`mt-1 block w-full rounded-md border-gray-300 bg-gray-50 ${
+                      marginRate >= 20 ? 'text-green-600' : 'text-red-600'
+                    }`}
+                  />
+                </div>
+              </>
+            ) : (
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Prix de transport (HT)</label>
+                <input
+                  type="number"
+                  name="price"
+                  value={formData.price}
+                  onChange={handleInputChange}
+                  step="0.01"
+                  required
+                  className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                />
+              </div>
+            )}
 
             <div>
               <label className="block text-sm font-medium text-gray-700">Mode de règlement</label>
@@ -333,6 +596,7 @@ const SlipForm: React.FC<SlipFormProps> = ({
                 className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
               >
                 <option value="">Sélectionner un mode</option>
+                <option value="Virement 30j FDM">Virement 30j FDM</option>
                 <option value="virement">Virement</option>
                 <option value="cheque">Chèque</option>
                 <option value="especes">Espèces</option>
