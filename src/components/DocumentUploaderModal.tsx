@@ -43,12 +43,9 @@ const DocumentUploaderModal: React.FC<DocumentUploaderModalProps> = ({
     setUploading(true);
 
     try {
-      // Generate unique filename
-      const fileExt = file.name.split('.').pop();
-      const uniqueId = crypto.randomUUID();
-      const timestamp = Date.now();
-      const fileName = `${slipId}_${documentType}_${timestamp}_${uniqueId}.${fileExt}`;
-      const filePath = `${slipType}/${slipId}/${fileName}`;
+      // Keep original filename
+      const originalFilename = file.name;
+      const filePath = `${slipType}/${slipId}/${originalFilename}`;
 
       // Upload file to Supabase Storage
       const { error: uploadError } = await supabase.storage
@@ -77,11 +74,12 @@ const DocumentUploaderModal: React.FC<DocumentUploaderModalProps> = ({
         ...currentDocs,
         [documentType]: {
           url: publicUrl,
+          filename: originalFilename,
           uploaded_at: new Date().toISOString()
         }
       };
 
-      // Update slip record with document URL
+      // Update slip record with document URL and filename
       const { error: updateError } = await supabase
         .from(slipType === 'transport' ? 'transport_slips' : 'freight_slips')
         .update({ documents: updatedDocs })

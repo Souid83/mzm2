@@ -1,17 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, FileText, Pencil, Send, Upload } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import toast from 'react-hot-toast';
 import SlipForm from '../components/SlipForm';
-import StatusBadge from '../components/StatusBadge';
 import SlipStatusSelect from '../components/SlipStatusSelect';
 import EmailModal from '../components/EmailModal';
 import DocumentUploaderModal from '../components/DocumentUploaderModal';
 import DocumentViewerModal from '../components/DocumentViewerModal';
 import ActionButtons from '../components/ActionButtons';
 import TableHeader from '../components/TableHeader';
-import { createFreightSlip, getAllFreightSlips, downloadFreightPDF } from '../services/slips';
-import { downloadBPA, generateAndSaveBPA } from '../services/pdfTemplates/bpa';
+import { createFreightSlip, getAllFreightSlips, generatePDF } from '../services/slips';
 import type { FreightSlip } from '../types';
+import { supabase } from '../lib/supabase';
 
 const Freight = () => {
   const [showForm, setShowForm] = useState(false);
@@ -42,22 +41,42 @@ const Freight = () => {
   const handleCreate = async (data: any) => {
     setLoading(true);
     try {
-      const newSlip = await createFreightSlip(data);
-      // Generate BPA automatically
-      await generateAndSaveBPA(newSlip);
+      const {
+        commercial,
+        exchange_pallets,
+        ...cleanedData
+      } = data;
+
+      // Get the user's UUID if a commercial name is provided
+      let commercialId = null;
+      if (commercial) {
+        const { data: userData, error: userError } = await supabase
+          .from('users')
+          .select('id')
+          .eq('name', commercial)
+          .single();
+
+        if (userError) {
+          console.error('Error fetching user:', userError);
+        } else if (userData) {
+          commercialId = userData.id;
+        }
+      }
+
+      await createFreightSlip({
+        ...cleanedData,
+        commercial_id: commercialId
+      });
+
       setShowForm(false);
       fetchSlips();
-      toast.success('Bordereau et BPA créés avec succès');
+      toast.success('Bordereau créé avec succès');
     } catch (error) {
       console.error('Error creating freight slip:', error);
       toast.error('Erreur lors de la création du bordereau');
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleEdit = (slip: FreightSlip) => {
-    setEditingSlip(slip);
   };
 
   const handleUpdate = async (data: any) => {
@@ -74,35 +93,13 @@ const Freight = () => {
     }
   };
 
-  const handleEmail = async (slip: FreightSlip) => {
-    setEmailSlip(slip);
-  };
-
-  const handleUpload = (slip: FreightSlip) => {
-    setUploadingSlip(slip);
-  };
-
-  const handleView = (slip: FreightSlip) => {
-    setViewingDocuments(slip);
-  };
-
   const handleDownload = async (slip: FreightSlip) => {
     try {
-      await downloadFreightPDF(slip);
+      await generatePDF(slip, 'freight');
       toast.success('Bordereau téléchargé avec succès');
     } catch (error) {
       console.error('Error downloading slip:', error);
       toast.error('Erreur lors du téléchargement du bordereau');
-    }
-  };
-
-  const handleDownloadBPA = async (slip: FreightSlip) => {
-    try {
-      await downloadBPA(slip);
-      toast.success('BPA téléchargé avec succès');
-    } catch (error) {
-      console.error('Error downloading BPA:', error);
-      toast.error('Erreur lors du téléchargement du BPA');
     }
   };
 
@@ -153,11 +150,9 @@ const Freight = () => {
 
       {emailSlip && (
         <EmailModal
-          client={emailSlip.clients}
+          client={emailSlip.client}
           pdfUrl=""
-          onClose={() => {
-            setEmailSlip(null);
-          }}
+          onClose={() => setEmailSlip(null)}
         />
       )}
 
@@ -188,8 +183,10 @@ const Freight = () => {
               <TableHeader>Client</TableHeader>
               <TableHeader>Date</TableHeader>
               <TableHeader>Affréteur</TableHeader>
-              <TableHeader>Prix HT</TableHeader>
+              <TableHeader>ACHAT HT</TableHeader>
               <TableHeader>Vente HT</TableHeader>
+              <TableHeader>MARGE €</TableHeader>
+              <TableHeader>MARGE %</TableHeader>
               <TableHeader align="center">Actions</TableHeader>
             </tr>
           </thead>
@@ -208,32 +205,35 @@ const Freight = () => {
                   {slip.number}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  {slip.clients?.nom}
+                  {slip.client?.nom}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   {new Date(slip.delivery_date).toLocaleDateString('fr-FR')}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  {slip.fournisseurs?.nom}
+                  {slip.fournisseur?.nom}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  {slip.price} €
+                  {slip.purchase_price} €
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  {/* TODO: Add selling price */}
-                  - €
+                  {slip.selling_price} €
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  {slip.margin} €
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  {slip.margin_rate?.toFixed(2)}%
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <ActionButtons
                     slip={slip}
-                    onEdit={() => handleEdit(slip)}
-                    onEmail={() => handleEmail(slip)}
-                    onUpload={() => handleUpload(slip)}
-                    onView={() => handleView(slip)}
+                    onEdit={() => setEditingSlip(slip)}
+                    onEmail={() => setEmailSlip(slip)}
+                    onUpload={() => setUploadingSlip(slip)}
+                    onView={() => setViewingDocuments(slip)}
                     onDownload={() => handleDownload(slip)}
-                    onDownloadBPA={() => handleDownloadBPA(slip)}
                     documentCount={getDocumentCount(slip)}
-                    showBPA={true}
                   />
                 </td>
               </tr>

@@ -37,10 +37,36 @@ const Transport = () => {
     }
   };
 
-  const handleCreate = async (data: any) => {
+  const handleCreate = async (formData: any) => {
     setLoading(true);
     try {
-      await createTransportSlip(data);
+      // Clean and validate the data before sending
+      const cleanedData = {
+        ...formData,
+        // Ensure UUID fields are either valid UUIDs or null
+        client_id: formData.client_id || null,
+        vehicule_id: formData.vehicule_id || null,
+        // Ensure numeric fields are properly typed
+        volume: formData.volume ? Number(formData.volume) : null,
+        weight: formData.weight ? Number(formData.weight) : null,
+        price: Number(formData.price),
+        // Ensure boolean fields are properly typed
+        photo_required: Boolean(formData.photo_required),
+        // Ensure string fields are trimmed
+        loading_address: formData.loading_address?.trim(),
+        delivery_address: formData.delivery_address?.trim(),
+        loading_contact: formData.loading_contact?.trim(),
+        delivery_contact: formData.delivery_contact?.trim(),
+        goods_description: formData.goods_description?.trim(),
+        vehicle_type: formData.vehicle_type?.trim(),
+        exchange_type: formData.exchange_type?.trim(),
+        instructions: formData.instructions?.trim(),
+        payment_method: formData.payment_method?.trim(),
+        observations: formData.observations?.trim(),
+        order_number: formData.order_number?.trim() || null
+      };
+
+      await createTransportSlip(cleanedData);
       setShowForm(false);
       fetchSlips();
       toast.success('Bordereau créé avec succès');
@@ -123,7 +149,7 @@ const Transport = () => {
 
       {emailSlip && (
         <EmailModal
-          client={emailSlip.clients}
+          client={emailSlip.client}
           pdfUrl=""
           onClose={() => setEmailSlip(null)}
         />
@@ -158,7 +184,6 @@ const Transport = () => {
               <TableHeader>Chauffeur</TableHeader>
               <TableHeader>Véhicule</TableHeader>
               <TableHeader>Prix HT</TableHeader>
-              <TableHeader>Prix/km</TableHeader>
               <TableHeader align="center">Actions</TableHeader>
             </tr>
           </thead>
@@ -177,7 +202,7 @@ const Transport = () => {
                   {slip.order_number ? `${slip.number} / ${slip.order_number}` : slip.number}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  {slip.clients?.nom}
+                  {slip.client?.nom}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   {new Date(slip.delivery_date).toLocaleDateString('fr-FR')}
@@ -190,10 +215,6 @@ const Transport = () => {
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   {slip.price} €
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  {/* TODO: Add kilometers tracking */}
-                  - €
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <ActionButtons

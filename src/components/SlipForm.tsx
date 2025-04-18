@@ -4,6 +4,21 @@ import { useFournisseurs } from '../hooks/useFournisseurs';
 import { useUser } from '../contexts/UserContext';
 import type { Client, TransportSlip, FreightSlip, Fournisseur } from '../types';
 
+function cleanPayload(data: Record<string, any>) {
+  const numericFields = [
+    "price", "purchase_price", "selling_price",
+    "margin", "margin_rate", "volume", "weight"
+  ];
+
+  const result: Record<string, any> = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (key.endsWith('_id') && value === "") result[key] = null;
+    else if (numericFields.includes(key) && (value === "" || isNaN(Number(value)))) result[key] = 0;
+    else result[key] = value;
+  }
+  return result;
+}
+
 const VEHICLE_TYPES = ['T1', 'T2', 'T3', 'T4'];
 const SALES_TEAM = ['ORLANE', 'SALOMÉ', 'ELIOT', 'MEHDI'];
 
@@ -38,6 +53,7 @@ const SlipForm: React.FC<SlipFormProps> = ({
   const [sellingPrice, setSellingPrice] = useState<number>(0);
   const [margin, setMargin] = useState<number>(0);
   const [marginRate, setMarginRate] = useState<number>(0);
+  const [selectedCommercial, setSelectedCommercial] = useState<string>('');
 
   const [loadingAddress, setLoadingAddress] = useState<AddressFields>({
     company: '',
@@ -56,7 +72,7 @@ const SlipForm: React.FC<SlipFormProps> = ({
   const [formData, setFormData] = useState({
     client_id: '',
     fournisseur_id: '',
-    commercial: '',
+    commercial_id: '',
     loading_date: '',
     loading_time: '',
     loading_contact: '',
@@ -67,28 +83,35 @@ const SlipForm: React.FC<SlipFormProps> = ({
     volume: '',
     weight: '',
     vehicle_type: 'T1',
-    exchange_pallets: 'false',
+    exchange_type: '',
     instructions: 'BIEN ARRIMER LA MARCHANDISE',
     price: '',
     payment_method: type === 'freight' ? 'Virement 30j FDM' : '',
     observations: '',
     photo_required: true,
-    order_number: ''
+    order_number: '',
+    purchase_price: '',
+    selling_price: '',
+    margin: 0,
+    margin_rate: 0
   });
 
+  // Initialiser le commercial par défaut basé sur l'utilisateur connecté
   useEffect(() => {
-    if (type === 'freight' && user?.name) {
+    if (type === 'freight' && user?.name && !initialData) {
       const upperName = user.name.toUpperCase();
       const matchingName = SALES_TEAM.find(name => 
         name.normalize("NFD").replace(/[\u0300-\u036f]/g, "") === 
         upperName.normalize("NFD").replace(/[\u0300-\u036f]/g, "")
       );
       if (matchingName) {
-        setFormData(prev => ({ ...prev, commercial: matchingName }));
+        setSelectedCommercial(matchingName);
+        setFormData(prev => ({ ...prev, commercial_id: matchingName }));
       }
     }
-  }, [user, type]);
+  }, [user, type, initialData]);
 
+  // Charger les données initiales lors de la modification
   useEffect(() => {
     if (initialData) {
       const loadingParts = initialData.loading_address.split(',').map(p => p.trim());
@@ -108,9 +131,25 @@ const SlipForm: React.FC<SlipFormProps> = ({
         city: deliveryParts[2]?.split(' ').slice(1).join(' ') || ''
       });
 
+      // Handle freight-specific fields
+      if ('fournisseur_id' in initialData) {
+        const freightData = initialData as FreightSlip;
+        setPurchasePrice(freightData.purchase_price || 0);
+        setSellingPrice(freightData.selling_price || 0);
+        setMargin(freightData.margin || 0);
+        setMarginRate(freightData.margin_rate || 0);
+        
+        // Définir le commercial sélectionné depuis les données initiales
+        if (freightData.commercial_id) {
+          setSelectedCommercial(freightData.commercial_id);
+        }
+      }
+
       setFormData({
         ...formData,
         client_id: initialData.client_id || '',
+        fournisseur_id: 'fournisseur_id' in initialData ? initialData.fournisseur_id : '',
+        commercial_id: 'commercial_id' in initialData ? initialData.commercial_id : '',
         loading_date: initialData.loading_date || '',
         loading_time: initialData.loading_time || '',
         loading_contact: initialData.loading_contact || '',
@@ -121,15 +160,17 @@ const SlipForm: React.FC<SlipFormProps> = ({
         volume: initialData.volume?.toString() || '',
         weight: initialData.weight?.toString() || '',
         vehicle_type: initialData.vehicle_type || 'T1',
-        exchange_pallets: 'false',
+        exchange_type: initialData.exchange_type || '',
         instructions: initialData.instructions || 'BIEN ARRIMER LA MARCHANDISE',
         price: initialData.price?.toString() || '',
         payment_method: initialData.payment_method || (type === 'freight' ? 'Virement 30j FDM' : ''),
         observations: initialData.observations || '',
         photo_required: initialData.photo_required ?? true,
         order_number: 'order_number' in initialData ? initialData.order_number || '' : '',
-        commercial: '',
-        fournisseur_id: ''
+        purchase_price: 'purchase_price' in initialData ? initialData.purchase_price?.toString() || '' : '',
+        selling_price: 'selling_price' in initialData ? initialData.selling_price?.toString() || '' : '',
+        margin: 'margin' in initialData ? initialData.margin || 0 : 0,
+        margin_rate: 'margin_rate' in initialData ? initialData.margin_rate || 0 : 0
       });
 
       const client = clients.find(c => c.id === initialData.client_id);
@@ -138,10 +179,9 @@ const SlipForm: React.FC<SlipFormProps> = ({
       if ('fournisseur_id' in initialData && initialData.fournisseur_id) {
         const fournisseur = fournisseurs.find(f => f.id === initialData.fournisseur_id);
         setSelectedFournisseur(fournisseur || null);
-        setFormData(prev => ({ ...prev, fournisseur_id: initialData.fournisseur_id || '' }));
       }
     }
-  }, [initialData, clients, fournisseurs]);
+  }, [initialData, clients, fournisseurs, type]);
 
   useEffect(() => {
     if (type === 'freight') {
@@ -162,6 +202,12 @@ const SlipForm: React.FC<SlipFormProps> = ({
     const fournisseur = fournisseurs.find(f => f.id === e.target.value);
     setSelectedFournisseur(fournisseur || null);
     setFormData(prev => ({ ...prev, fournisseur_id: e.target.value }));
+  };
+
+  const handleCommercialChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const commercial = e.target.value;
+    setSelectedCommercial(commercial);
+    setFormData(prev => ({ ...prev, commercial_id: commercial }));
   };
 
   const handleLoadingAddressChange = (field: keyof AddressFields, value: string) => {
@@ -196,13 +242,18 @@ const SlipForm: React.FC<SlipFormProps> = ({
     };
 
     if (type === 'freight') {
-      submitData.purchase_price = purchasePrice;
-      submitData.selling_price = sellingPrice;
-      submitData.margin = margin;
-      submitData.margin_rate = marginRate;
-    }
+  submitData.purchase_price = purchasePrice;
+  submitData.selling_price = sellingPrice;
+  submitData.margin = margin;
+  submitData.margin_rate = marginRate;
+  submitData.commercial_id = selectedCommercial;
+}
 
-    onSubmit(submitData);
+// Nettoyage des UUID vides ("") et numériques vides ("") => null ou 0
+const cleanedData = cleanPayload(submitData);
+
+onSubmit(cleanedData);
+
   };
 
   return (
@@ -236,9 +287,9 @@ const SlipForm: React.FC<SlipFormProps> = ({
                   Quel commercial fait la saisie ?
                 </label>
                 <select
-                  name="commercial"
-                  value={formData.commercial}
-                  onChange={handleInputChange}
+                  name="commercial_id"
+                  value={selectedCommercial}
+                  onChange={handleCommercialChange}
                   required
                   className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                 >
@@ -503,14 +554,15 @@ const SlipForm: React.FC<SlipFormProps> = ({
             <div>
               <label className="block text-sm font-medium text-gray-700">Échange palettes</label>
               <select
-                name="exchange_pallets"
-                value={formData.exchange_pallets}
+                name="exchange_type"
+                value={formData.exchange_type}
                 onChange={handleInputChange}
                 required
                 className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
               >
-                <option value="false">Non</option>
-                <option value="true">Oui</option>
+                <option value="">Sélectionner</option>
+                <option value="Oui">Oui</option>
+                <option value="Non">Non</option>
               </select>
             </div>
 

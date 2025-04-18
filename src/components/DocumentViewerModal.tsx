@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase';
 
 interface Document {
   url: string;
+  filename: string;
   uploaded_at: string;
 }
 
@@ -59,11 +60,12 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
 
   const handleDelete = async (documentType: string) => {
     try {
-      // Extract filename from URL
-      const url = documents[documentType].url;
-      const filePath = `${slipType}/${slipId}/${url.split('/').pop()}`;
+      // Get the document info
+      const doc = documents[documentType];
+      if (!doc) return;
 
-      // Delete from storage
+      // Delete from storage using the original filename
+      const filePath = `${slipType}/${slipId}/${doc.filename}`;
       const { error: storageError } = await supabase.storage
         .from('documents')
         .remove([filePath]);
@@ -97,11 +99,8 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
       const doc = documents[documentType];
       if (!doc) return;
 
-      // Get the filename from the URL
-      const filename = doc.url.split('/').pop();
-      const filePath = `${slipType}/${slipId}/${filename}`;
-
       // Get a signed URL for the file
+      const filePath = `${slipType}/${slipId}/${doc.filename}`;
       const { data, error } = await supabase.storage
         .from('documents')
         .createSignedUrl(filePath, 60); // URL valid for 60 seconds
@@ -147,6 +146,9 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
                   <div>
                     <h3 className="font-medium">{DOCUMENT_TYPE_LABELS[type] || type}</h3>
                     <p className="text-sm text-gray-500">
+                      {doc.filename}
+                    </p>
+                    <p className="text-xs text-gray-400">
                       Ajouté le {new Date(doc.uploaded_at).toLocaleDateString('fr-FR')}
                     </p>
                   </div>

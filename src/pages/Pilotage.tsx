@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Truck, Euro, Calendar, Pencil, Send, Upload } from 'lucide-react';
+import React, { useState } from 'react';
+import { Truck, Euro, Calendar } from 'lucide-react';
 import toast from 'react-hot-toast';
 import DashboardCard from '../components/DashboardCard';
 import SlipStatusSelect from '../components/SlipStatusSelect';
@@ -9,11 +9,17 @@ import DocumentUploaderModal from '../components/DocumentUploaderModal';
 import DocumentViewerModal from '../components/DocumentViewerModal';
 import ActionButtons from '../components/ActionButtons';
 import TableHeader from '../components/TableHeader';
-import { generatePDF, downloadFreightPDF, getAllTransportSlips, getAllFreightSlips } from '../services/slips';
+import { generatePDF } from '../services/slips';
 import { downloadBPA } from '../services/pdfTemplates/bpa';
 import type { TransportSlip, FreightSlip } from '../types';
+import { useSlips } from '../hooks/useSlips';
+import { useUser } from '../contexts/UserContext';
 
 const Pilotage = () => {
+  console.log("📍 DASHBOARD CHARGÉ");
+  const { user } = useUser();
+  console.log("🔑 user dans Dashboard :", user);
+
   const [activeTab, setActiveTab] = useState<'deliveries' | 'freight'>('deliveries');
   const [activeFilter, setActiveFilter] = useState<'day' | 'week'>('day');
   const [dateRange, setDateRange] = useState<{ start: string; end?: string }>({
@@ -39,7 +45,7 @@ const Pilotage = () => {
   // Calculate dashboard metrics
   const totalTransport = transportSlips.length;
   const totalFreight = freightSlips.length;
-  const marginOfDay = Math.floor(freightSlips.reduce((sum, slip) => sum + (slip.price || 0), 0));
+  const marginOfDay = Math.floor(freightSlips.reduce((sum, slip) => sum + (slip.margin || 0), 0));
   const revenueOfDay = Math.floor(transportSlips.reduce((sum, slip) => sum + (slip.price || 0), 0));
 
   const handleEdit = (slip: TransportSlip | FreightSlip) => {
@@ -60,8 +66,8 @@ const Pilotage = () => {
 
   const handleDownload = async (slip: TransportSlip | FreightSlip) => {
     try {
-      if ('fournisseurs' in slip) {
-        await downloadFreightPDF(slip);
+      if ('fournisseur_id' in slip) {
+        await generatePDF(slip, 'freight');
       } else {
         await generatePDF(slip);
       }
@@ -233,7 +239,7 @@ const Pilotage = () => {
 
       {emailSlip && (
         <EmailModal
-          client={emailSlip.clients}
+          client={emailSlip.client}
           pdfUrl=""
           onClose={() => {
             setEmailSlip(null);
@@ -268,16 +274,16 @@ const Pilotage = () => {
               <TableHeader>Date</TableHeader>
               {activeTab === 'deliveries' ? (
                 <>
-                  <TableHeader>Chauffeur</TableHeader>
                   <TableHeader>Véhicule</TableHeader>
                   <TableHeader>Prix HT</TableHeader>
-                  <TableHeader>Prix/km</TableHeader>
                 </>
               ) : (
                 <>
                   <TableHeader>Affréteur</TableHeader>
-                  <TableHeader>Prix HT</TableHeader>
+                  <TableHeader>ACHAT HT</TableHeader>
                   <TableHeader>Vente HT</TableHeader>
+                  <TableHeader>MARGE €</TableHeader>
+                  <TableHeader>MARGE %</TableHeader>
                 </>
               )}
               <TableHeader align="center">Actions</TableHeader>
@@ -296,20 +302,25 @@ const Pilotage = () => {
                       />
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      {slip.clients?.nom}
+                      {slip.client?.nom}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       {new Date(slip.loading_date).toLocaleDateString('fr-FR')}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      {slip.fournisseurs?.nom}
+                      {slip.fournisseur?.nom}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      {slip.price} €
+                      {slip.purchase_price} €
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      {/* TODO: Add selling price */}
-                      - €
+                      {slip.selling_price} €
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      {slip.margin} €
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      {slip.margin_rate?.toFixed(2)}%
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <ActionButtons
@@ -337,23 +348,16 @@ const Pilotage = () => {
                       />
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      {slip.clients?.nom}
+                      {slip.client?.nom}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       {new Date(slip.loading_date).toLocaleDateString('fr-FR')}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      John Doe {/* TODO: Add driver assignment */}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {slip.vehicules?.immatriculation}
+                      {slip.vehicle_type}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       {slip.price} €
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {/* TODO: Add price per km calculation */}
-                      - €
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <ActionButtons
@@ -383,47 +387,5 @@ const Pilotage = () => {
     </div>
   );
 };
-
-// Custom hook for fetching slips
-function useSlips(type: 'transport' | 'freight', startDate?: string, endDate?: string) {
-  const [data, setData] = useState<(TransportSlip | FreightSlip)[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error | null>(null);
-
-  useEffect(() => {
-    async function fetchData() {
-      try {
-        const slips = await (type === 'transport' 
-          ? getAllTransportSlips(startDate, endDate)
-          : getAllFreightSlips(startDate, endDate));
-        setData(slips);
-        setError(null);
-      } catch (err) {
-        setError(err instanceof Error ? err : new Error('An error occurred'));
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    fetchData();
-  }, [type, startDate, endDate]);
-
-  const refresh = async () => {
-    setLoading(true);
-    try {
-      const slips = await (type === 'transport'
-        ? getAllTransportSlips(startDate, endDate)
-        : getAllFreightSlips(startDate, endDate));
-      setData(slips);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err : new Error('An error occurred'));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return { data, loading, error, refresh };
-}
 
 export default Pilotage;

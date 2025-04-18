@@ -4,7 +4,7 @@ import type { Client, CreateClientPayload } from '../types';
 export async function getAllClients(): Promise<Client[]> {
   const { data: clients, error: clientsError } = await supabase
     .from('clients')
-    .select('*, contacts(*), accounting_contact(*)')
+    .select('*, client_contacts(*), client_accounting_contacts(*)')
     .order('nom', { ascending: true });
 
   if (clientsError) {
@@ -43,7 +43,7 @@ export async function createClient(client: CreateClientPayload): Promise<Client>
       .from('client_contacts')
       .insert(
         client.contacts.map(contact => ({
-          id: crypto.randomUUID(), // Generate UUID for each contact
+          id: crypto.randomUUID(),
           ...contact,
           client_id: newClient.id
         }))
@@ -59,7 +59,7 @@ export async function createClient(client: CreateClientPayload): Promise<Client>
     const { error: accountingError } = await supabase
       .from('client_accounting_contacts')
       .insert([{
-        id: crypto.randomUUID(), // Generate UUID for accounting contact
+        id: crypto.randomUUID(),
         ...client.accounting_contact,
         client_id: newClient.id
       }]);
@@ -110,7 +110,7 @@ export async function updateClient(id: string, client: Partial<CreateClientPaylo
         .from('client_contacts')
         .insert(
           client.contacts.map(contact => ({
-            id: crypto.randomUUID(), // Generate UUID for each contact
+            id: crypto.randomUUID(),
             ...contact,
             client_id: id
           }))
@@ -134,7 +134,7 @@ export async function updateClient(id: string, client: Partial<CreateClientPaylo
     const { error: accountingError } = await supabase
       .from('client_accounting_contacts')
       .insert([{
-        id: crypto.randomUUID(), // Generate UUID for accounting contact
+        id: crypto.randomUUID(),
         ...client.accounting_contact,
         client_id: id
       }]);
